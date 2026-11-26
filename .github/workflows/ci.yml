@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository:
+    name: Repository checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Check whitespace and conflict markers
+        shell: bash
+        run: |
+          git diff --check
+          if grep -RInE '^(<<<<<<<|=======|>>>>>>>)' --exclude-dir=.git --exclude='*.meta' .; then
+            echo "Conflict markers found."
+            exit 1
+          fi
+      - name: Report Unity project status
+        shell: bash
+        run: |
+          if [ -f ProjectSettings/ProjectVersion.txt ]; then
+            echo "Unity project detected."
+          else
+            echo "::notice::No Unity project is committed yet. Unity test/build jobs will be skipped until ProjectSettings/ProjectVersion.txt exists."
+          fi
+
+  unity-tests:
+    name: Unity EditMode and PlayMode tests
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('ProjectSettings/ProjectVersion.txt') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-
+      - name: Run Unity tests
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          projectPath: .
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unity-test-results
+          path: artifacts
+          if-no-files-found: ignore
