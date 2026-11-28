@@ -40,3 +40,6 @@ Desktop.ini
 *.dylib
 sysinfo.txt
 *.stackdump
+
+*.slnx
+mono_crash.*
